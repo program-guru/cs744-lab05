@@ -12,8 +12,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-int save_int(const char *path, long value)
-{
+int save_int(const char *path, long value) {
     char tmp[4096];
     snprintf(tmp, sizeof tmp, "%s.tmp.%d", path, (int)getpid());
 
@@ -39,8 +38,7 @@ int save_int(const char *path, long value)
     return 0;
 }
 
-int load_int(const char *path, long *value)
-{
+int load_int(const char *path, long *value) {
     FILE *f = fopen(path, "r");
     if (!f)
         return -1;
@@ -53,13 +51,11 @@ int load_int(const char *path, long *value)
     return 0;
 }
 
-static int cmp_str(const void *a, const void *b)
-{
+static int cmp_str(const void *a, const void *b) {
     return strcmp(*(char *const *)a, *(char *const *)b);
 }
 
-int list_input_files(const char *dir, char ***files)
-{
+int list_input_files(const char *dir, char ***files) {
     DIR *d = opendir(dir);
     if (!d)
         return -1;
@@ -97,8 +93,7 @@ int list_input_files(const char *dir, char ***files)
     return n;
 }
 
-int ensure_dir(const char *path)
-{
+int ensure_dir(const char *path) {
     if (mkdir(path, 0755) == 0 || errno == EEXIST)
         return 0;
     return -1;

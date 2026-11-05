@@ -165,7 +165,7 @@ static void cp_phase_actions(long now) {
     if (cfg->interval_ms && now - last_cp_time >= cfg->interval_ms) {
         is_cp_in_progress = 1;
         last_cp_time = now;
-    
+
         for (int w = 0; w < cfg->M; w++) {
             send_to(w, MT_CHECKPOINT, next_cp_id);
         }

@@ -6,10 +6,9 @@
 #include <stdio.h>
 
 static int is_letter(int c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); }
-static int lower(int c)     { return (c >= 'A' && c <= 'Z') ? c - 'A' + 'a' : c; }
+static int lower(int c) { return (c >= 'A' && c <= 'Z') ? c - 'A' + 'a' : c; }
 
-wcmap_t *count_file(const char *path)
-{
+wcmap_t *count_file(const char *path) {
     FILE *f = fopen(path, "rb");
     if (!f)
         return NULL;

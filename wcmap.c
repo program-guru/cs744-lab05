@@ -12,19 +12,18 @@
 #include <unistd.h>
 
 struct entry {
-    char    word[MAX_WORD];
+    char word[MAX_WORD];
     int64_t count;
-    int     used;
+    int used;
 };
 
 struct wcmap {
     struct entry *e;
-    size_t        cap;      /* power of two */
-    size_t        size;
+    size_t cap; /* power of two */
+    size_t size;
 };
 
-static void *xcalloc(size_t n, size_t sz)
-{
+static void *xcalloc(size_t n, size_t sz) {
     void *p = calloc(n, sz);
     if (!p) {
         perror("calloc");
@@ -33,32 +32,28 @@ static void *xcalloc(size_t n, size_t sz)
     return p;
 }
 
-wcmap_t *wcmap_new(void)
-{
+wcmap_t *wcmap_new(void) {
     wcmap_t *m = xcalloc(1, sizeof *m);
     m->cap = 64;
     m->e = xcalloc(m->cap, sizeof *m->e);
     return m;
 }
 
-void wcmap_free(wcmap_t *m)
-{
+void wcmap_free(wcmap_t *m) {
     if (!m)
         return;
     free(m->e);
     free(m);
 }
 
-static size_t slot_for(const struct entry *e, size_t cap, const char *w)
-{
+static size_t slot_for(const struct entry *e, size_t cap, const char *w) {
     size_t i = fnv1a(w) & (cap - 1);
     while (e[i].used && strcmp(e[i].word, w) != 0)
         i = (i + 1) & (cap - 1);
     return i;
 }
 
-static void grow(wcmap_t *m)
-{
+static void grow(wcmap_t *m) {
     size_t ncap = m->cap * 2;
     struct entry *ne = xcalloc(ncap, sizeof *ne);
     for (size_t i = 0; i < m->cap; i++)
@@ -69,8 +64,7 @@ static void grow(wcmap_t *m)
     m->cap = ncap;
 }
 
-void wcmap_add(wcmap_t *m, const char *word, int64_t n)
-{
+void wcmap_add(wcmap_t *m, const char *word, int64_t n) {
     char w[MAX_WORD];
     snprintf(w, sizeof w, "%s", word);
     if ((m->size + 1) * 2 > m->cap)
@@ -85,8 +79,7 @@ void wcmap_add(wcmap_t *m, const char *word, int64_t n)
     m->e[i].count += n;
 }
 
-int64_t wcmap_get(const wcmap_t *m, const char *word)
-{
+int64_t wcmap_get(const wcmap_t *m, const char *word) {
     char w[MAX_WORD];
     snprintf(w, sizeof w, "%s", word);
     size_t i = slot_for(m->e, m->cap, w);
@@ -95,8 +88,7 @@ int64_t wcmap_get(const wcmap_t *m, const char *word)
 
 size_t wcmap_size(const wcmap_t *m) { return m->size; }
 
-int wcmap_next(const wcmap_t *m, size_t *pos, const char **word, int64_t *count)
-{
+int wcmap_next(const wcmap_t *m, size_t *pos, const char **word, int64_t *count) {
     while (*pos < m->cap) {
         const struct entry *e = &m->e[(*pos)++];
         if (e->used) {
@@ -108,15 +100,13 @@ int wcmap_next(const wcmap_t *m, size_t *pos, const char **word, int64_t *count)
     return 0;
 }
 
-static int cmp_entry(const void *a, const void *b)
-{
+static int cmp_entry(const void *a, const void *b) {
     const struct entry *x = *(const struct entry *const *)a;
     const struct entry *y = *(const struct entry *const *)b;
     return strcmp(x->word, y->word);
 }
 
-int wcmap_save(const wcmap_t *m, const char *path)
-{
+int wcmap_save(const wcmap_t *m, const char *path) {
     const struct entry **v = xcalloc(m->size ? m->size : 1, sizeof *v);
     size_t n = 0;
     for (size_t i = 0; i < m->cap; i++)
@@ -147,8 +137,7 @@ int wcmap_save(const wcmap_t *m, const char *path)
     return 0;
 }
 
-wcmap_t *wcmap_load(const char *path)
-{
+wcmap_t *wcmap_load(const char *path) {
     FILE *f = fopen(path, "r");
     if (!f)
         return NULL;

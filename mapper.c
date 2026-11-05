@@ -11,23 +11,21 @@
 #include <unistd.h>
 
 static const worker_args_t *args;
-static int  coord_port;
-static long offset;                 /* files fully processed and sent */
-static int  rid;                    /* current recovery id; -1 = waiting for RECOVER */
-static int  conn[MAX_REDUCERS];     /* TCP connection to each reducer, -1 if none */
-static int  broken;                 /* a send failed: wait for RECOVER */
-static int  done_sent;
+static int coord_port;
+static long offset;            /* files fully processed and sent */
+static int rid;                /* current recovery id; -1 = waiting for RECOVER */
+static int conn[MAX_REDUCERS]; /* TCP connection to each reducer, -1 if none */
+static int broken;             /* a send failed: wait for RECOVER */
+static int done_sent;
 
 /* Unexpected errors: die by signal; the coordinator will notice. */
-static void fail(const char *what)
-{
+static void fail(const char *what) {
     wlog("fatal: %s: %s", what, strerror(errno));
     abort();
 }
 
 /* A message of the given type from this mapper, tagged with our recovery id. */
-static msg_t make(int type)
-{
+static msg_t make(int type) {
     msg_t m;
     memset(&m, 0, sizeof m);
     m.type = type;
@@ -37,8 +35,7 @@ static msg_t make(int type)
     return m;
 }
 
-static void to_coordinator(int type, long cp)
-{
+static void to_coordinator(int type, long cp) {
     msg_t m = make(type);
     m.checkpoint_id = cp;
     wlog("-> coordinator: %s cp=%ld rid=%d", msg_type_name(type), cp, rid);
@@ -46,8 +43,7 @@ static void to_coordinator(int type, long cp)
         fail("udp_send");
 }
 
-static void disconnect_all(void)
-{
+static void disconnect_all(void) {
     for (int r = 0; r < args->R; r++) {
         if (conn[r] >= 0)
             close(conn[r]);
@@ -55,8 +51,7 @@ static void disconnect_all(void)
     }
 }
 
-static void connect_all(void)
-{
+static void connect_all(void) {
     for (int r = 0; r < args->R; r++)
         conn[r] = tcp_connect_retry(worker_port(args->base_port, args->M, ROLE_REDUCER, r));
     wlog("connected to %d reducer(s)", args->R);
@@ -65,11 +60,10 @@ static void connect_all(void)
 /* Send to reducer r. A failure means that reducer died or dropped our
  * connection while recovering; stop working until the coordinator tells us
  * to recover. */
-static void to_reducer(int r, const msg_t *m)
-{
+static void to_reducer(int r, const msg_t *m) {
     if (broken)
         return;
-    if (m->type != MT_WORD_COUNT)   /* word counts are logged per file */
+    if (m->type != MT_WORD_COUNT) /* word counts are logged per file */
         wlog("-> reducer %d: %s cp=%ld rid=%d", r, msg_type_name(m->type),
              (long)m->checkpoint_id, m->recovery_id);
     if (send_msg(conn[r], m) != 0) {
@@ -81,44 +75,41 @@ static void to_reducer(int r, const msg_t *m)
 /*
  * TODO (Task 1, Task 2)
  */
-static void take_checkpoint(long c)
-{
+static void take_checkpoint(long c) {
     char path[64];
     snprintf(path, sizeof path, CKPT_DIR "/m%d_%ld", args->id, c);
 
-    if(save_int(path, offset) != 0) {
+    if (save_int(path, offset) != 0) {
         fail("save_int");
     }
 
-    for(int r = 0; r < args->R; r++) {
+    for (int r = 0; r < args->R; r++) {
         msg_t m = make(MT_FWD_CHECKPOINT);
         m.checkpoint_id = c;
         to_reducer(r, &m);
     }
 
-    if(broken) {
+    if (broken) {
         return;
     }
 
-    if(c == LAST_CHECKPOINT_ID) {
+    if (c == LAST_CHECKPOINT_ID) {
         to_coordinator(MT_LAST_CHECKPOINT_ACK, c);
     } else {
         to_coordinator(MT_CHECKPOINT_ACK, c);
-    }   
+    }
 }
 
 /*
  * TODO (Task 3)
  */
-static void recover(long c, int new_rid)
-{
+static void recover(long c, int new_rid) {
     (void)c;
     (void)new_rid;
 }
 
 /* Handle every message waiting on the control socket. */
-static void poll_control(void)
-{
+static void poll_control(void) {
     msg_t m;
     int r;
     while ((r = udp_recv(args->ctl_fd, &m)) == 1) {
@@ -147,18 +138,16 @@ static void poll_control(void)
         fail("udp_recv");
 }
 
-static void wait_for_control(void)
-{
-    struct pollfd p = { .fd = args->ctl_fd, .events = POLLIN, .revents = 0 };
-    poll(&p, 1, -1);                /* EINTR from heartbeats is fine */
+static void wait_for_control(void) {
+    struct pollfd p = {.fd = args->ctl_fd, .events = POLLIN, .revents = 0};
+    poll(&p, 1, -1); /* EINTR from heartbeats is fine */
 }
 
-static void process_file(void)
-{
+static void process_file(void) {
     wcmap_t *wc = count_file(args->files[offset]);
     if (!wc)
         fail(args->files[offset]);
-    sleep_us(args->sleep_us);       /* simulated processing time */
+    sleep_us(args->sleep_us); /* simulated processing time */
 
     msg_t m = make(MT_WORD_COUNT);
     size_t pos = 0;
@@ -176,8 +165,7 @@ static void process_file(void)
     }
 }
 
-void mapper_main(const worker_args_t *a)
-{
+void mapper_main(const worker_args_t *a) {
     args = a;
     coord_port = coordinator_port(a->base_port);
     for (int r = 0; r < MAX_REDUCERS; r++)
@@ -188,7 +176,7 @@ void mapper_main(const worker_args_t *a)
 
     wlog("%d file(s) assigned", a->nfiles);
     if (a->recovering) {
-        rid = -1;                   /* do nothing until RECOVER */
+        rid = -1; /* do nothing until RECOVER */
         wlog("restarted: waiting for RECOVER");
     } else {
         rid = 0;

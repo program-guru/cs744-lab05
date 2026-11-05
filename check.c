@@ -14,14 +14,13 @@
 static int quiet;
 
 struct diff {
-    long    words;
+    long words;
     int64_t net;
     int64_t abs;
-    char    example[160];
+    char example[160];
 };
 
-static void compare(const wcmap_t *exp, const wcmap_t *got, struct diff *d)
-{
+static void compare(const wcmap_t *exp, const wcmap_t *got, struct diff *d) {
     memset(d, 0, sizeof *d);
     size_t pos = 0;
     const char *w;
@@ -50,14 +49,12 @@ static void compare(const wcmap_t *exp, const wcmap_t *got, struct diff *d)
     }
 }
 
-static int cmp_long(const void *a, const void *b)
-{
+static int cmp_long(const void *a, const void *b) {
     long x = *(const long *)a, y = *(const long *)b;
     return (x > y) - (x < y);
 }
 
-static long *list_cp_ids(const char *ckpt, int *n_out)
-{
+static long *list_cp_ids(const char *ckpt, int *n_out) {
     DIR *d = opendir(ckpt);
     long *ids = NULL;
     int n = 0, cap = 0;
@@ -95,23 +92,34 @@ static long *list_cp_ids(const char *ckpt, int *n_out)
     return ids;
 }
 
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
     int check_cps = 0, min_cps = 0, M = 0, R = 0;
     static const struct option opts[] = {
-        { "checkpoints",     no_argument,       NULL, 'c' },
-        { "min-checkpoints", required_argument, NULL, 'n' },
-        { NULL, 0, NULL, 0 },
+        {"checkpoints", no_argument, NULL, 'c'},
+        {"min-checkpoints", required_argument, NULL, 'n'},
+        {NULL, 0, NULL, 0},
     };
     int ch;
     while ((ch = getopt_long(argc, argv, "m:r:q", opts, NULL)) != -1) {
         switch (ch) {
-        case 'c': check_cps = 1; break;
-        case 'n': min_cps = atoi(optarg); check_cps = 1; break;
-        case 'm': M = atoi(optarg); break;
-        case 'r': R = atoi(optarg); break;
-        case 'q': quiet = 1; break;
-        default:  goto usage;
+        case 'c':
+            check_cps = 1;
+            break;
+        case 'n':
+            min_cps = atoi(optarg);
+            check_cps = 1;
+            break;
+        case 'm':
+            M = atoi(optarg);
+            break;
+        case 'r':
+            R = atoi(optarg);
+            break;
+        case 'q':
+            quiet = 1;
+            break;
+        default:
+            goto usage;
         }
     }
     if (argc - optind != 2)
@@ -128,8 +136,10 @@ int main(int argc, char **argv)
             return 2;
         }
         fclose(f);
-        if (M <= 0) M = fm;
-        if (R <= 0) R = fr;
+        if (M <= 0)
+            M = fm;
+        if (R <= 0)
+            R = fr;
     }
     if (M < 1 || M > MAX_MAPPERS || R < 1 || R > MAX_REDUCERS) {
         fprintf(stderr, "check: bad M=%d R=%d\n", M, R);
@@ -248,7 +258,8 @@ int main(int argc, char **argv)
                 wcmap_free(saved);
                 if (cd.words) {
                     printf("checkpoint %ld: INCONSISTENT: reducer %d differs in %ld word(s), "
-                           "net %+" PRId64 "; e.g. %s\n", c, r, cd.words, cd.net, cd.example);
+                           "net %+" PRId64 "; e.g. %s\n",
+                           c, r, cd.words, cd.net, cd.example);
                     cp_ok = 0;
                 }
             }
@@ -275,6 +286,7 @@ int main(int argc, char **argv)
 
 usage:
     fprintf(stderr, "usage: %s [--checkpoints] [--min-checkpoints N] [-m M] [-r R] [-q] "
-                    "INPUT_DIR CKPT_DIR\n", argv[0]);
+                    "INPUT_DIR CKPT_DIR\n",
+            argv[0]);
     return 2;
 }

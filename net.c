@@ -20,15 +20,13 @@
 
 int coordinator_port(int base_port) { return base_port; }
 
-int worker_port(int base_port, int M, int role, int id)
-{
+int worker_port(int base_port, int M, int role, int id) {
     return base_port + 1 + (role == ROLE_MAPPER ? id : M + id);
 }
 
 int worker_index(int M, int role, int id) { return role == ROLE_MAPPER ? id : M + id; }
 
-static struct sockaddr_in loopback(int port)
-{
+static struct sockaddr_in loopback(int port) {
     struct sockaddr_in a;
     memset(&a, 0, sizeof a);
     a.sin_family = AF_INET;
@@ -37,15 +35,13 @@ static struct sockaddr_in loopback(int port)
     return a;
 }
 
-static int set_nonblock(int fd)
-{
+static int set_nonblock(int fd) {
     int fl = fcntl(fd, F_GETFL);
     return fl < 0 ? -1 : fcntl(fd, F_SETFL, fl | O_NONBLOCK);
 }
 
 /* UDP helpers */
-int udp_bind(int port)
-{
+int udp_bind(int port) {
     int fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (fd < 0)
         return -1;
@@ -61,8 +57,7 @@ int udp_bind(int port)
     return fd;
 }
 
-int udp_send(int fd, int port, const msg_t *m)
-{
+int udp_send(int fd, int port, const msg_t *m) {
     struct sockaddr_in a = loopback(port);
     for (;;) {
         ssize_t n = sendto(fd, m, sizeof *m, 0, (struct sockaddr *)&a, sizeof a);
@@ -71,7 +66,7 @@ int udp_send(int fd, int port, const msg_t *m)
         if (n < 0 && errno == EINTR)
             continue;
         if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-            struct pollfd p = { .fd = fd, .events = POLLOUT, .revents = 0 };
+            struct pollfd p = {.fd = fd, .events = POLLOUT, .revents = 0};
             poll(&p, 1, 10);
             continue;
         }
@@ -79,8 +74,7 @@ int udp_send(int fd, int port, const msg_t *m)
     }
 }
 
-int udp_recv(int fd, msg_t *m)
-{
+int udp_recv(int fd, msg_t *m) {
     for (;;) {
         ssize_t n = recv(fd, m, sizeof *m, 0);
         if (n == (ssize_t)sizeof *m)
@@ -98,8 +92,7 @@ int udp_recv(int fd, msg_t *m)
 }
 
 /* TCP helpers */
-int tcp_listen(int port)
-{
+int tcp_listen(int port) {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0)
         return -1;
@@ -116,8 +109,7 @@ int tcp_listen(int port)
     return fd;
 }
 
-int tcp_accept(int listen_fd)
-{
+int tcp_accept(int listen_fd) {
     for (;;) {
         int fd = accept(listen_fd, NULL, NULL);
         if (fd >= 0) {
@@ -131,8 +123,7 @@ int tcp_accept(int listen_fd)
     }
 }
 
-int tcp_connect(int port)
-{
+int tcp_connect(int port) {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0)
         return -1;
@@ -143,7 +134,7 @@ int tcp_connect(int port)
             return -1;
         }
         /* Interrupted by a signal: the connection continues in the background. */
-        struct pollfd p = { .fd = fd, .events = POLLOUT, .revents = 0 };
+        struct pollfd p = {.fd = fd, .events = POLLOUT, .revents = 0};
         while (poll(&p, 1, -1) < 0 && errno == EINTR)
             ;
         int err = 0;
@@ -158,8 +149,7 @@ int tcp_connect(int port)
     return fd;
 }
 
-int tcp_connect_retry(int port)
-{
+int tcp_connect_retry(int port) {
     for (;;) {
         int fd = tcp_connect(port);
         if (fd >= 0)
@@ -168,8 +158,7 @@ int tcp_connect_retry(int port)
     }
 }
 
-int send_msg(int fd, const msg_t *m)
-{
+int send_msg(int fd, const msg_t *m) {
     size_t done = 0;
     while (done < sizeof *m) {
         ssize_t w = send(fd, (const char *)m + done, sizeof *m - done, MSG_NOSIGNAL);
@@ -183,8 +172,7 @@ int send_msg(int fd, const msg_t *m)
     return 0;
 }
 
-int recv_msg(int fd, msg_t *m)
-{
+int recv_msg(int fd, msg_t *m) {
     size_t got = 0;
     while (got < sizeof *m) {
         ssize_t r = recv(fd, (char *)m + got, sizeof *m - got, 0);
@@ -198,7 +186,7 @@ int recv_msg(int fd, msg_t *m)
         } else if (errno == EINTR) {
             continue;
         } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            struct pollfd p = { .fd = fd, .events = POLLIN, .revents = 0 };
+            struct pollfd p = {.fd = fd, .events = POLLIN, .revents = 0};
             poll(&p, 1, -1);
         } else {
             return -1;
@@ -208,8 +196,7 @@ int recv_msg(int fd, msg_t *m)
 }
 
 /* UDS helpers */
-static int unix_addr(const char *path, struct sockaddr_un *a)
-{
+static int unix_addr(const char *path, struct sockaddr_un *a) {
     memset(a, 0, sizeof *a);
     a->sun_family = AF_UNIX;
     if (strlen(path) >= sizeof a->sun_path) {
@@ -220,8 +207,7 @@ static int unix_addr(const char *path, struct sockaddr_un *a)
     return 0;
 }
 
-int unix_dgram_bind(const char *path)
-{
+int unix_dgram_bind(const char *path) {
     struct sockaddr_un a;
     if (unix_addr(path, &a) != 0)
         return -1;
@@ -238,8 +224,7 @@ int unix_dgram_bind(const char *path)
     return fd;
 }
 
-int unix_dgram_send(int fd, const char *path, const msg_t *m)
-{
+int unix_dgram_send(int fd, const char *path, const msg_t *m) {
     struct sockaddr_un a;
     if (unix_addr(path, &a) != 0)
         return -1;
@@ -254,34 +239,38 @@ int unix_dgram_send(int fd, const char *path, const msg_t *m)
 }
 
 /* Time and hashing helpers */
-const char *msg_type_name(int type)
-{
+const char *msg_type_name(int type) {
     static const char *names[] = {
-        "HEARTBEAT", "CHECKPOINT", "FWD_CHECKPOINT", "WORD_COUNT", "CHECKPOINT_ACK",
-        "EXIT", "DONE", "LAST_CHECKPOINT_ACK", "RECOVER", "RECOVERY_ACK",
+        "HEARTBEAT",
+        "CHECKPOINT",
+        "FWD_CHECKPOINT",
+        "WORD_COUNT",
+        "CHECKPOINT_ACK",
+        "EXIT",
+        "DONE",
+        "LAST_CHECKPOINT_ACK",
+        "RECOVER",
+        "RECOVERY_ACK",
     };
     if (type < 0 || type >= (int)(sizeof names / sizeof names[0]))
         return "UNKNOWN";
     return names[type];
 }
 
-long now_ms(void)
-{
+long now_ms(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
 
-void sleep_us(long us)
-{
-    struct timespec req = { .tv_sec = us / 1000000, .tv_nsec = (us % 1000000) * 1000 };
+void sleep_us(long us) {
+    struct timespec req = {.tv_sec = us / 1000000, .tv_nsec = (us % 1000000) * 1000};
     struct timespec rem;
     while (nanosleep(&req, &rem) != 0 && errno == EINTR)
         req = rem;
 }
 
-uint32_t fnv1a(const char *s)
-{
+uint32_t fnv1a(const char *s) {
     uint32_t h = 2166136261u;
     for (; *s; s++) {
         h ^= (unsigned char)*s;
@@ -292,17 +281,15 @@ uint32_t fnv1a(const char *s)
 
 /* Logging helpers */
 static char log_role[16] = "coord";
-static int  log_id = -1;
-static int  log_enabled = -1;
+static int log_id = -1;
+static int log_enabled = -1;
 
-void log_init(const char *role, int id)
-{
+void log_init(const char *role, int id) {
     snprintf(log_role, sizeof log_role, "%s", role);
     log_id = id;
 }
 
-void wlog(const char *fmt, ...)
-{
+void wlog(const char *fmt, ...) {
     if (log_enabled < 0) {
         const char *e = getenv("WC_DEBUG");
         log_enabled = (e && *e && strcmp(e, "0") != 0);

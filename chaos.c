@@ -8,8 +8,8 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-#define DEFAULT_MIN_MS        2000
-#define DEFAULT_MAX_MS        4000
+#define DEFAULT_MIN_MS 2000
+#define DEFAULT_MAX_MS 4000
 #define BLOCKED_KILL_GRACE_MS 1500
 
 struct chaos_shared {
@@ -17,39 +17,35 @@ struct chaos_shared {
 };
 
 static struct chaos_shared *sh;
-static int      my_role = -1;
+static int my_role = -1;
 
 /* Coordinator-side state. */
-static int      M_, R_, mode;
-static int      events_left, kills_done;
-static int      event_no, blocked_event_no = -1;
-static long     next_event_at = -1;
-static long     pending_since = -1;
-static long     min_ms = DEFAULT_MIN_MS, max_ms = DEFAULT_MAX_MS;
+static int M_, R_, mode;
+static int events_left, kills_done;
+static int event_no, blocked_event_no = -1;
+static long next_event_at = -1;
+static long pending_since = -1;
+static long min_ms = DEFAULT_MIN_MS, max_ms = DEFAULT_MAX_MS;
 static uint64_t rng;
 
-static uint32_t rnd(void)
-{
+static uint32_t rnd(void) {
     rng ^= rng >> 12;
     rng ^= rng << 25;
     rng ^= rng >> 27;
     return (uint32_t)((rng * 2685821657736338717ULL) >> 32);
 }
 
-static long env_long(const char *name, long def)
-{
+static long env_long(const char *name, long def) {
     const char *s = getenv(name);
     return (s && *s) ? atol(s) : def;
 }
 
-static long random_delay(void)
-{
+static long random_delay(void) {
     long span = max_ms > min_ms ? max_ms - min_ms : 0;
     return min_ms + (span ? (long)(rnd() % (uint32_t)(span + 1)) : 0);
 }
 
-void chaos_init(const config_t *cfg)
-{
+void chaos_init(const config_t *cfg) {
     M_ = cfg->M;
     R_ = cfg->R;
     mode = cfg->chaos_mode;
@@ -76,14 +72,12 @@ void chaos_init(const config_t *cfg)
         next_event_at = now_ms() + random_delay();
 }
 
-void chaos_worker_init(int role, int id)
-{
+void chaos_worker_init(int role, int id) {
     (void)id;
     my_role = role;
 }
 
-void chaos_report_blocked(int n)
-{
+void chaos_report_blocked(int n) {
     if (!sh || my_role != ROLE_REDUCER || n <= 0)
         return;
     if (__atomic_exchange_n(&sh->pending_blocked_kill, 0, __ATOMIC_SEQ_CST) == 1) {
@@ -92,8 +86,7 @@ void chaos_report_blocked(int n)
     }
 }
 
-static int pick_live(const job_t *job, int first, int count)
-{
+static int pick_live(const job_t *job, int first, int count) {
     int live[MAX_WORKERS], n = 0;
     for (int w = first; w < first + count; w++)
         if (!job->exited[w] && job->pid[w] > 0)
@@ -101,8 +94,7 @@ static int pick_live(const job_t *job, int first, int count)
     return n ? live[rnd() % (uint32_t)n] : -1;
 }
 
-static void do_kill(job_t *job, int w)
-{
+static void do_kill(job_t *job, int w) {
     if (w < 0)
         return;
     wlog("chaos: SIGKILL %s %d (pid %d)",
@@ -111,8 +103,7 @@ static void do_kill(job_t *job, int w)
     kills_done++;
 }
 
-void chaos_tick(job_t *job)
-{
+void chaos_tick(job_t *job) {
     if (!sh)
         return;
     long now = now_ms();
@@ -143,8 +134,12 @@ void chaos_tick(job_t *job)
         return;
     }
     switch (mode) {
-    case CHAOS_MAPPER:  do_kill(job, pick_live(job, 0, M_)); break;
-    case CHAOS_REDUCER: do_kill(job, pick_live(job, M_, R_)); break;
+    case CHAOS_MAPPER:
+        do_kill(job, pick_live(job, 0, M_));
+        break;
+    case CHAOS_REDUCER:
+        do_kill(job, pick_live(job, M_, R_));
+        break;
     case CHAOS_BOTH:
         do_kill(job, pick_live(job, 0, M_));
         do_kill(job, pick_live(job, M_, R_));
@@ -154,7 +149,9 @@ void chaos_tick(job_t *job)
             if (!job->exited[w] && job->pid[w] > 0)
                 do_kill(job, w);
         break;
-    default:            do_kill(job, pick_live(job, 0, M_ + R_)); break;
+    default:
+        do_kill(job, pick_live(job, 0, M_ + R_));
+        break;
     }
 }
 

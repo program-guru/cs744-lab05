@@ -13,24 +13,22 @@
 #define MAX_CONN (4 * MAX_MAPPERS)
 
 static const worker_args_t *args;
-static int      coord_port;
+static int coord_port;
 static wcmap_t *counts;
-static int      rid;                /* current recovery id; -1 = waiting for RECOVER */
+static int rid; /* current recovery id; -1 = waiting for RECOVER */
 
-static int  conn_fd[MAX_CONN];
-static int  conn_mapper[MAX_CONN];  /* -1 until known */
-static int  nconn;
-static int  blocked[MAX_MAPPERS];
-static int  nblocked;
+static int conn_fd[MAX_CONN];
+static int conn_mapper[MAX_CONN]; /* -1 until known */
+static int nconn;
+static int blocked[MAX_MAPPERS];
+static int nblocked;
 
-static void fail(const char *what)
-{
+static void fail(const char *what) {
     wlog("fatal: %s: %s", what, strerror(errno));
     abort();
 }
 
-static void to_coordinator(int type, long cp)
-{
+static void to_coordinator(int type, long cp) {
     msg_t m;
     memset(&m, 0, sizeof m);
     m.type = type;
@@ -43,8 +41,7 @@ static void to_coordinator(int type, long cp)
         fail("udp_send");
 }
 
-static void close_conn(int i)
-{
+static void close_conn(int i) {
     if (conn_mapper[i] >= 0)
         wlog("closed connection from mapper %d", conn_mapper[i]);
     else
@@ -58,16 +55,14 @@ static void close_conn(int i)
 /*
  * TODO (Task 3)
  */
-static void recover(long c, int new_rid)
-{
+static void recover(long c, int new_rid) {
     (void)c;
     (void)new_rid;
-    (void)to_coordinator;           /* TODO: remove */
+    (void)to_coordinator; /* TODO: remove */
     (void)nblocked;
 }
 
-static void handle_control(void)
-{
+static void handle_control(void) {
     msg_t m;
     int r;
     while ((r = udp_recv(args->ctl_fd, &m)) == 1) {
@@ -93,8 +88,7 @@ static void handle_control(void)
 /*
  * TODO (Task 3)
  */
-static int is_stale(const msg_t *m)
-{
+static int is_stale(const msg_t *m) {
     (void)m;
     return 0;
 }
@@ -102,22 +96,21 @@ static int is_stale(const msg_t *m)
 /*
  * TODO (Task 1, Task 2)
  */
-static void handle_marker(int j, long c)
-{
-    if(blocked[j] == 0) {
+static void handle_marker(int j, long c) {
+    if (blocked[j] == 0) {
         blocked[j] = 1;
         nblocked++;
     }
 
-    if(nblocked == args->M) {
+    if (nblocked == args->M) {
         char path[64];
         snprintf(path, sizeof path, CKPT_DIR "/r%d_%ld", args->id, c);
 
-        if(wcmap_save(counts, path) != 0) {
+        if (wcmap_save(counts, path) != 0) {
             fail("wcmap_save");
         }
 
-        if(c == LAST_CHECKPOINT_ID) {
+        if (c == LAST_CHECKPOINT_ID) {
             to_coordinator(MT_LAST_CHECKPOINT_ACK, c);
         } else {
             to_coordinator(MT_CHECKPOINT_ACK, c);
@@ -129,8 +122,7 @@ static void handle_marker(int j, long c)
 }
 
 /* PROVIDED: one message from connection i. */
-static void handle_data(int i, const msg_t *in)
-{
+static void handle_data(int i, const msg_t *in) {
     msg_t m = *in;
     if (m.id < 0 || m.id >= args->M)
         return;
@@ -142,7 +134,7 @@ static void handle_data(int i, const msg_t *in)
     }
     if (conn_mapper[i] != m.id)
         wlog("connection %d is mapper %d", i, m.id);
-    conn_mapper[i] = m.id;          /* learn which mapper this connection is */
+    conn_mapper[i] = m.id; /* learn which mapper this connection is */
 
     switch (m.type) {
     case MT_WORD_COUNT:
@@ -159,8 +151,7 @@ static void handle_data(int i, const msg_t *in)
     }
 }
 
-void reducer_main(const worker_args_t *a)
-{
+void reducer_main(const worker_args_t *a) {
     args = a;
     coord_port = coordinator_port(a->base_port);
     counts = wcmap_new();
@@ -172,14 +163,14 @@ void reducer_main(const worker_args_t *a)
         struct pollfd pfd[2 + MAX_CONN];
         int which[2 + MAX_CONN];
         int n = 0;
-        pfd[n] = (struct pollfd){ .fd = a->ctl_fd, .events = POLLIN };
+        pfd[n] = (struct pollfd){.fd = a->ctl_fd, .events = POLLIN};
         which[n++] = -1;
-        pfd[n] = (struct pollfd){ .fd = a->listen_fd, .events = POLLIN };
+        pfd[n] = (struct pollfd){.fd = a->listen_fd, .events = POLLIN};
         which[n++] = -2;
         for (int i = 0; i < nconn; i++) {
             if (conn_mapper[i] >= 0 && blocked[conn_mapper[i]])
-                continue;           /* leave its messages in the socket for now */
-            pfd[n] = (struct pollfd){ .fd = conn_fd[i], .events = POLLIN };
+                continue; /* leave its messages in the socket for now */
+            pfd[n] = (struct pollfd){.fd = conn_fd[i], .events = POLLIN};
             which[n++] = i;
         }
 
@@ -202,7 +193,7 @@ void reducer_main(const worker_args_t *a)
             msg_t m;
             int r = recv_msg(conn_fd[i], &m);
             if (r <= 0)
-                close_conn(i);      /* mapper died or reconnected */
+                close_conn(i); /* mapper died or reconnected */
             else
                 handle_data(i, &m);
         }

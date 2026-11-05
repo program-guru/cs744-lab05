@@ -16,12 +16,11 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-static int                hb_fd = -1;
-static msg_t              hb_msg;
+static int hb_fd = -1;
+static msg_t hb_msg;
 static struct sockaddr_in hb_addr;
 
-static void send_heartbeat(void)
-{
+static void send_heartbeat(void) {
     int saved = errno;
     ssize_t n = sendto(hb_fd, &hb_msg, sizeof hb_msg, 0,
                        (struct sockaddr *)&hb_addr, sizeof hb_addr);
@@ -29,14 +28,12 @@ static void send_heartbeat(void)
     errno = saved;
 }
 
-static void on_alarm(int sig)
-{
+static void on_alarm(int sig) {
     (void)sig;
     send_heartbeat();
 }
 
-static void start_heartbeats(const config_t *cfg, int role, int id)
-{
+static void start_heartbeats(const config_t *cfg, int role, int id) {
     hb_fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (hb_fd < 0)
         abort();
@@ -44,7 +41,7 @@ static void start_heartbeats(const config_t *cfg, int role, int id)
     hb_msg.type = MT_HEARTBEAT;
     hb_msg.role = role;
     hb_msg.id = id;
-    hb_msg.count = getpid();        /* lets the coordinator ignore replaced processes */
+    hb_msg.count = getpid(); /* lets the coordinator ignore replaced processes */
     memset(&hb_addr, 0, sizeof hb_addr);
     hb_addr.sin_family = AF_INET;
     hb_addr.sin_port = htons((uint16_t)coordinator_port(cfg->base_port));
@@ -59,14 +56,13 @@ static void start_heartbeats(const config_t *cfg, int role, int id)
 
     send_heartbeat();
     struct itimerval it = {
-        .it_interval = { .tv_sec = 0, .tv_usec = HEARTBEAT_INTERVAL_MS * 1000 },
-        .it_value    = { .tv_sec = 0, .tv_usec = HEARTBEAT_INTERVAL_MS * 1000 },
+        .it_interval = {.tv_sec = 0, .tv_usec = HEARTBEAT_INTERVAL_MS * 1000},
+        .it_value = {.tv_sec = 0, .tv_usec = HEARTBEAT_INTERVAL_MS * 1000},
     };
     setitimer(ITIMER_REAL, &it, NULL);
 }
 
-static int bind_retry(int (*fn)(int), int port)
-{
+static int bind_retry(int (*fn)(int), int port) {
     for (int i = 0; i < 100; i++) {
         int fd = fn(port);
         if (fd >= 0)
@@ -76,8 +72,7 @@ static int bind_retry(int (*fn)(int), int port)
     return -1;
 }
 
-static void run_worker(const config_t *cfg, job_t *job, int w, int recovering, pid_t parent)
-{
+static void run_worker(const config_t *cfg, job_t *job, int w, int recovering, pid_t parent) {
     prctl(PR_SET_PDEATHSIG, SIGKILL);
     if (getppid() != parent)
         _exit(0);
@@ -135,8 +130,7 @@ static void run_worker(const config_t *cfg, job_t *job, int w, int recovering, p
     exit(0);
 }
 
-static int spawn_worker(job_t *job, const config_t *cfg, int w, int recovering)
-{
+static int spawn_worker(job_t *job, const config_t *cfg, int w, int recovering) {
     pid_t parent = getpid();
     fflush(stdout);
     fflush(stderr);
@@ -155,8 +149,7 @@ static int spawn_worker(job_t *job, const config_t *cfg, int w, int recovering)
     return 0;
 }
 
-int spawn_all(job_t *job, const config_t *cfg)
-{
+int spawn_all(job_t *job, const config_t *cfg) {
     job->M = cfg->M;
     job->R = cfg->R;
     job->n = cfg->M + cfg->R;
@@ -166,8 +159,7 @@ int spawn_all(job_t *job, const config_t *cfg)
     return 0;
 }
 
-int respawn_worker(job_t *job, const config_t *cfg, int w)
-{
+int respawn_worker(job_t *job, const config_t *cfg, int w) {
     if (!job->exited[w] && job->pid[w] > 0) {
         kill(job->pid[w], SIGKILL);
         int st;
@@ -179,8 +171,7 @@ int respawn_worker(job_t *job, const config_t *cfg, int w)
     return spawn_worker(job, cfg, w, 1);
 }
 
-int reap_children(job_t *job)
-{
+int reap_children(job_t *job) {
     int n = 0;
     for (;;) {
         int st;
@@ -198,8 +189,7 @@ int reap_children(job_t *job)
     return n;
 }
 
-void kill_all(job_t *job)
-{
+void kill_all(job_t *job) {
     for (int w = 0; w < job->n; w++)
         if (!job->exited[w] && job->pid[w] > 0)
             kill(job->pid[w], SIGKILL);

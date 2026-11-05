@@ -11,8 +11,7 @@
 #include <string.h>
 #include <unistd.h>
 
-static void usage(const char *prog)
-{
+static void usage(const char *prog) {
     fprintf(stderr,
             "usage: %s [-m M] [-r R] -i INPUT_DIR [-t INTERVAL_MS] [-s SLEEP_US] [-p PORT]\n"
             "          [-k KILLS] [--chaos MODE] [--seed N] [--kill-blocked] [--no-align]\n"
@@ -34,9 +33,8 @@ static void usage(const char *prog)
     exit(2);
 }
 
-static int parse_mode(const char *s)
-{
-    static const char *names[] = { "any", "mapper", "reducer", "both", "all" };
+static int parse_mode(const char *s) {
+    static const char *names[] = {"any", "mapper", "reducer", "both", "all"};
     for (int i = 0; i < 5; i++)
         if (strcmp(s, names[i]) == 0)
             return i;
@@ -44,11 +42,14 @@ static int parse_mode(const char *s)
 }
 
 /* Print the job's output: the final checkpoint of every reducer (ckpt/r<i>_0). */
-static void print_final_counts(int R)
-{
-    struct row { const char *word; int64_t count; int reducer; };
+static void print_final_counts(int R) {
+    struct row {
+        const char *word;
+        int64_t count;
+        int reducer;
+    };
     struct row rows[4096];
-    wcmap_t *maps[MAX_REDUCERS] = { 0 };
+    wcmap_t *maps[MAX_REDUCERS] = {0};
     int n = 0;
     int64_t total = 0;
 
@@ -64,7 +65,7 @@ static void print_final_counts(int R)
         const char *w;
         int64_t c;
         while (n < (int)(sizeof rows / sizeof rows[0]) && wcmap_next(maps[r], &pos, &w, &c)) {
-            rows[n++] = (struct row){ w, c, r };
+            rows[n++] = (struct row){w, c, r};
             total += c;
         }
     }
@@ -91,41 +92,69 @@ static void print_final_counts(int R)
             wcmap_free(maps[r]);
 }
 
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
     config_t cfg = {
-        .M = 3, .R = 2, .input_dir = NULL, .interval_ms = 500, .sleep_us = 0,
-        .base_port = DEFAULT_BASE_PORT, .kills = 0, .chaos_mode = CHAOS_ANY,
-        .seed = 1, .kill_blocked = 0, .no_align = 0,
+        .M = 3,
+        .R = 2,
+        .input_dir = NULL,
+        .interval_ms = 500,
+        .sleep_us = 0,
+        .base_port = DEFAULT_BASE_PORT,
+        .kills = 0,
+        .chaos_mode = CHAOS_ANY,
+        .seed = 1,
+        .kill_blocked = 0,
+        .no_align = 0,
     };
 
     static const struct option opts[] = {
-        { "chaos",        required_argument, NULL, 'C' },
-        { "seed",         required_argument, NULL, 'S' },
-        { "kill-blocked", no_argument,       NULL, 'B' },
-        { "no-align",     no_argument,       NULL, 'N' },
-        { "help",         no_argument,       NULL, 'h' },
-        { NULL, 0, NULL, 0 },
+        {"chaos", required_argument, NULL, 'C'},
+        {"seed", required_argument, NULL, 'S'},
+        {"kill-blocked", no_argument, NULL, 'B'},
+        {"no-align", no_argument, NULL, 'N'},
+        {"help", no_argument, NULL, 'h'},
+        {NULL, 0, NULL, 0},
     };
     int c;
     while ((c = getopt_long(argc, argv, "m:r:i:t:s:p:k:h", opts, NULL)) != -1) {
         switch (c) {
-        case 'm': cfg.M = atoi(optarg); break;
-        case 'r': cfg.R = atoi(optarg); break;
-        case 'i': cfg.input_dir = optarg; break;
-        case 't': cfg.interval_ms = atoi(optarg); break;
-        case 's': cfg.sleep_us = atoi(optarg); break;
-        case 'p': cfg.base_port = atoi(optarg); break;
-        case 'k': cfg.kills = atoi(optarg); break;
+        case 'm':
+            cfg.M = atoi(optarg);
+            break;
+        case 'r':
+            cfg.R = atoi(optarg);
+            break;
+        case 'i':
+            cfg.input_dir = optarg;
+            break;
+        case 't':
+            cfg.interval_ms = atoi(optarg);
+            break;
+        case 's':
+            cfg.sleep_us = atoi(optarg);
+            break;
+        case 'p':
+            cfg.base_port = atoi(optarg);
+            break;
+        case 'k':
+            cfg.kills = atoi(optarg);
+            break;
         case 'C':
             cfg.chaos_mode = parse_mode(optarg);
             if (cfg.chaos_mode < 0)
                 usage(argv[0]);
             break;
-        case 'S': cfg.seed = (unsigned)strtoul(optarg, NULL, 10); break;
-        case 'B': cfg.kill_blocked = 1; break;
-        case 'N': cfg.no_align = 1; break;
-        default:  usage(argv[0]);
+        case 'S':
+            cfg.seed = (unsigned)strtoul(optarg, NULL, 10);
+            break;
+        case 'B':
+            cfg.kill_blocked = 1;
+            break;
+        case 'N':
+            cfg.no_align = 1;
+            break;
+        default:
+            usage(argv[0]);
         }
     }
     if (optind != argc || !cfg.input_dir)
@@ -181,7 +210,7 @@ int main(int argc, char **argv)
     }
 
     int rc = coordinator_loop(&cfg, &job);
-    kill_all(&job);                 /* nothing should be left; just in case */
+    kill_all(&job); /* nothing should be left; just in case */
     fprintf(stderr, "wcjob: %s (chaos kills: %d)\n",
             rc == 0 ? "job complete" : "coordinator failed", chaos_kills());
     if (rc == 0)
