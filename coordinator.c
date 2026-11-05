@@ -27,7 +27,7 @@ static job_t         *job;
 static struct wstate  ws[MAX_WORKERS];
 static enum phase     phase;
 static int            rid;              /* current recovery id */
-static long           next_cp_id = 1;   /* never reused */
+// static long           next_cp_id = 1;   /* never reused */
 
 static const char *phase_name[] = {
     "CP", "RECOVER_REDUCER", "RECOVER_MAPPER", "LAST_CP", "EXITING",
@@ -70,15 +70,15 @@ static void send_to(int w, int type, long cp)
 /*
  * TODO (Task 3)
  */
-static void start_recovery(void)
-{
-    for (int w = 0; w < job->n; w++) {
-        ws[w].done = 0;
-        ws[w].last_cp_ack = 0;
-    }
+// static void start_recovery(void)
+// {
+//     for (int w = 0; w < job->n; w++) {
+//         ws[w].done = 0;
+//         ws[w].last_cp_ack = 0;
+//     }
 
-    // TODO
-}
+//     // TODO
+// }
 
 /* One message from a worker. */
 static void handle(const msg_t *m, long now)
