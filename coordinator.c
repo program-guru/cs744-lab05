@@ -11,32 +11,40 @@
 
 #define POLL_MS 50
 
-enum phase { PH_CP, PH_RECOVER_REDUCER, PH_RECOVER_MAPPER, PH_LAST_CP, PH_EXITING };
+enum phase { PH_CP,
+             PH_RECOVER_REDUCER,
+             PH_RECOVER_MAPPER,
+             PH_LAST_CP,
+             PH_EXITING };
 
 struct wstate {
     long last_hb;       /* time of the last heartbeat from the current process */
-    int  heard;         /* current process has sent a heartbeat (its sockets are up) */
+    int heard;          /* current process has sent a heartbeat (its sockets are up) */
     long last_cp;       /* newest checkpoint this worker acknowledged */
     int done;           /* worker has sent MT_DONE */
-    int last_cp_ack;   /* worker has sent MT_LAST_CHECKPOINT_ACK */
-    /* TODO: add whatever else you need per worker */
+    int is_last_cp_ack; /* worker has sent MT_LAST_CHECKPOINT_ACK */
 };
 
 static const config_t *cfg;
-static job_t         *job;
-static struct wstate  ws[MAX_WORKERS];
-static enum phase     phase;
-static int            rid;              /* current recovery id */
-// static long           next_cp_id = 1;   /* never reused */
+static job_t *job;
+static struct wstate ws[MAX_WORKERS];
+static enum phase phase;
+static int rid;                   /* current recovery id */
+static long next_cp_id = 1;       /* next checkpoint id to send to mappers */
+static int is_cp_in_progress = 0; /* 1 if a checkpoint is in progress, 0 otherwise */
+static long last_cp_time = 0;     /* time of the last checkpoint */
 
 static const char *phase_name[] = {
-    "CP", "RECOVER_REDUCER", "RECOVER_MAPPER", "LAST_CP", "EXITING",
+    "CP",
+    "RECOVER_REDUCER",
+    "RECOVER_MAPPER",
+    "LAST_CP",
+    "EXITING",
 };
 
 static int is_mapper(int w) { return w < cfg->M; }
 
-static const char *wname(int w)
-{
+static const char *wname(int w) {
     static char buf[4][32];
     static int k;
     char *b = buf[k++ % 4];
@@ -46,15 +54,13 @@ static const char *wname(int w)
 }
 
 /* PROVIDED: change phase (and log it). Use this instead of assigning phase. */
-static void set_phase(enum phase p)
-{
+static void set_phase(enum phase p) {
     wlog("phase %s -> %s (rid %d)", phase_name[phase], phase_name[p], rid);
     phase = p;
 }
 
 /* Send a message of the given type to worker w, tagged with our recovery id. */
-static void send_to(int w, int type, long cp)
-{
+static void send_to(int w, int type, long cp) {
     msg_t m;
     memset(&m, 0, sizeof m);
     m.type = type;
@@ -74,15 +80,14 @@ static void send_to(int w, int type, long cp)
 // {
 //     for (int w = 0; w < job->n; w++) {
 //         ws[w].done = 0;
-//         ws[w].last_cp_ack = 0;
+//         ws[w].is_last_cp_ack = 0;
 //     }
 
 //     // TODO
 // }
 
 /* One message from a worker. */
-static void handle(const msg_t *m, long now)
-{
+static void handle(const msg_t *m, long now) {
     if ((m->role != ROLE_MAPPER && m->role != ROLE_REDUCER) || m->id < 0 ||
         m->id >= (m->role == ROLE_MAPPER ? cfg->M : cfg->R))
         return;
@@ -107,13 +112,12 @@ static void handle(const msg_t *m, long now)
 
     switch (m->type) {
     case MT_CHECKPOINT_ACK:
-        /* TODO (Task 2) */
+        ws[w].last_cp = m->checkpoint_id;
         break;
     case MT_LAST_CHECKPOINT_ACK:
-        ws[w].last_cp_ack = 1;
+        ws[w].is_last_cp_ack = 1;
         break;
     case MT_DONE:
-        /* TODO (Task 1) */
         ws[w].done = 1;
         break;
     case MT_RECOVERY_ACK:
@@ -124,33 +128,55 @@ static void handle(const msg_t *m, long now)
     }
 }
 
-static void cp_phase_actions(void)
-{   
-    // Other Stuff TO-DO
+static void cp_phase_actions(long now) {
+    if (is_cp_in_progress) {
+        int is_cp_completed = 1;
+        for (int w = 0; w < job->n; w++) {
+            if (ws[w].last_cp != next_cp_id) {
+                is_cp_completed = 0;
+                break;
+            }
+        }
 
-    // Check if all mappers are done
+        if (is_cp_completed) {
+            next_cp_id++;
+            is_cp_in_progress = 0;
+        }
+        return;
+    }
+
+    int are_mappers_done = 1;
     for (int w = 0; w < cfg->M; w++) {
-        if (!ws[w].done) {   
-            return;
+        if (!ws[w].done) {
+            are_mappers_done = 0;
+            break;
         }
     }
 
-    // All mappers are done
-    // Send last checkpoint to all mappers
-    for (int w = 0; w < cfg->M; w++) {
-        send_to(w, MT_CHECKPOINT, LAST_CHECKPOINT_ID);
+    if (are_mappers_done) {
+        for (int w = 0; w < cfg->M; w++) {
+            send_to(w, MT_CHECKPOINT, LAST_CHECKPOINT_ID);
+        }
+
+        set_phase(PH_LAST_CP);
+        return;
     }
 
-    wlog("all mappers done, moving to last checkpoint phase");
-    set_phase(PH_LAST_CP);
+    if (cfg->interval_ms && now - last_cp_time >= cfg->interval_ms) {
+        is_cp_in_progress = 1;
+        last_cp_time = now;
+    
+        for (int w = 0; w < cfg->M; w++) {
+            send_to(w, MT_CHECKPOINT, next_cp_id);
+        }
+    }
 }
 
-static void last_cp_phase_actions(void)
-{
+static void last_cp_phase_actions(void) {
     // Check if all workers have acknowledged the last checkpoint
     for (int w = 0; w < job->n; w++) {
-        if (!ws[w].last_cp_ack) {
-            return; 
+        if (!ws[w].is_last_cp_ack) {
+            return;
         }
     }
 
@@ -163,12 +189,11 @@ static void last_cp_phase_actions(void)
     set_phase(PH_EXITING);
 }
 
-static int exiting_phase_actions(void)
-{
+static int exiting_phase_actions(void) {
     // Check if all workers have exited
     for (int w = 0; w < job->n; w++) {
         if (job->exited[w] == 0) {
-            return 0; 
+            return 0;
         }
     }
 
@@ -178,8 +203,7 @@ static int exiting_phase_actions(void)
 }
 
 /* Returns 0 when the job is complete; any other value is a fatal error. */
-int coordinator_loop(const config_t *c, job_t *j)
-{
+int coordinator_loop(const config_t *c, job_t *j) {
     cfg = c;
     job = j;
     long now = now_ms();
@@ -190,11 +214,12 @@ int coordinator_loop(const config_t *c, job_t *j)
     }
     phase = PH_CP;
     rid = 0;
+    last_cp_time = now;
 
     for (;;) {
-        chaos_tick(job);        /* PROVIDED: do not remove */
+        chaos_tick(job); /* PROVIDED: do not remove */
 
-        struct pollfd p = { .fd = job->fd, .events = POLLIN, .revents = 0 };
+        struct pollfd p = {.fd = job->fd, .events = POLLIN, .revents = 0};
         if (poll(&p, 1, POLL_MS) < 0 && errno != EINTR) {
             perror("poll");
             return 1;
@@ -210,24 +235,23 @@ int coordinator_loop(const config_t *c, job_t *j)
             return 1;
         }
 
-        reap_children(job);     /* bookkeeping only */
-
+        reap_children(job); /* bookkeeping only */
 
         switch (phase) {
         case PH_CP:
-            cp_phase_actions();
+            cp_phase_actions(now);
             break;
-        case PH_RECOVER_REDUCER:    
+        case PH_RECOVER_REDUCER:
             /* TODO (Task 3) */
             break;
-        case PH_RECOVER_MAPPER:  
+        case PH_RECOVER_MAPPER:
             /* TODO (Task 3) */
             break;
         case PH_LAST_CP:
             last_cp_phase_actions();
             break;
         case PH_EXITING:
-            if(exiting_phase_actions()) {
+            if (exiting_phase_actions()) {
                 return 0;
             }
             break;
