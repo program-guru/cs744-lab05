@@ -18,21 +18,24 @@ enum phase { PH_CP,
              PH_EXITING };
 
 struct wstate {
-    long last_hb;       /* time of the last heartbeat from the current process */
-    int heard;          /* current process has sent a heartbeat (its sockets are up) */
-    long last_cp;       /* newest checkpoint this worker acknowledged */
-    int done;           /* worker has sent MT_DONE */
-    int is_last_cp_ack; /* worker has sent MT_LAST_CHECKPOINT_ACK */
+    long last_hb;        /* time of the last heartbeat from the current process */
+    int heard;           /* current process has sent a heartbeat (its sockets are up) */
+    long last_cp;        /* newest checkpoint this worker acknowledged */
+    int done;            /* worker has sent MT_DONE */
+    int is_last_cp_ack;  /* worker has sent MT_LAST_CHECKPOINT_ACK */
+    int is_recover_ack;  /* worker has sent MT_RECOVERY_ACK */
+    int is_recover_sent; /* coordinator has sent MT_RECOVER */
 };
 
 static const config_t *cfg;
 static job_t *job;
 static struct wstate ws[MAX_WORKERS];
 static enum phase phase;
-static int rid;                   /* current recovery id */
-static long next_cp_id = 1;       /* next checkpoint id to send to mappers */
-static int is_cp_in_progress = 0; /* 1 if a checkpoint is in progress, 0 otherwise */
-static long last_cp_time = 0;     /* time of the last checkpoint */
+static int rid;                          /* current recovery id */
+static long next_cp_id = 1;              /* next checkpoint id to send to mappers */
+static long reset_cp_id = NO_CHECKPOINT; /* checkpoint id to reset workers to on recovery */
+static int is_cp_in_progress = 0;        /* 1 if a checkpoint is in progress, 0 otherwise */
+static long last_cp_time = 0;            /* time of the last checkpoint */
 
 static const char *phase_name[] = {
     "CP",
@@ -73,18 +76,32 @@ static void send_to(int w, int type, long cp) {
     udp_send(job->fd, worker_port(cfg->base_port, cfg->M, role, id), &m);
 }
 
-/*
- * TODO (Task 3)
- */
-// static void start_recovery(void)
-// {
-//     for (int w = 0; w < job->n; w++) {
-//         ws[w].done = 0;
-//         ws[w].is_last_cp_ack = 0;
-//     }
+static void start_recovery(long now) {
+    // Find restore point
+    reset_cp_id = ws[0].last_cp;
+    for (int w = 1; w < job->n; w++) {
+        if (ws[w].last_cp < reset_cp_id) {
+            reset_cp_id = ws[w].last_cp;
+        }
+    }
 
-//     // TODO
-// }
+    // Reset global state
+    next_cp_id += is_cp_in_progress; /* if a checkpoint was in flight, burn its id */
+    is_cp_in_progress = 0;
+    last_cp_time = now;
+    rid++;
+
+    // Reset per-worker state for the new recovery round.
+    for (int w = 0; w < job->n; w++) {
+        ws[w].done = 0;
+        ws[w].is_last_cp_ack = 0;
+        ws[w].is_recover_sent = 0;
+        ws[w].is_recover_ack = 0;
+        ws[w].last_cp = reset_cp_id;
+    }
+
+    set_phase(PH_RECOVER_REDUCER);
+}
 
 /* One message from a worker. */
 static void handle(const msg_t *m, long now) {
@@ -108,7 +125,10 @@ static void handle(const msg_t *m, long now) {
          msg_type_name(m->type), (long)m->checkpoint_id, m->recovery_id,
          rid, phase_name[phase]);
 
-    /* TODO (Task 3): ignore messages from before the last rollback. */
+    if (m->recovery_id < rid) {
+        wlog("ignored: stale recovery id");
+        return;
+    }
 
     switch (m->type) {
     case MT_CHECKPOINT_ACK:
@@ -121,7 +141,7 @@ static void handle(const msg_t *m, long now) {
         ws[w].done = 1;
         break;
     case MT_RECOVERY_ACK:
-        /* TODO (Task 3) */
+        ws[w].is_recover_ack = 1;
         break;
     default:
         break;
@@ -202,6 +222,59 @@ static int exiting_phase_actions(void) {
     return 1;
 }
 
+static void recover_reducer_phase_actions(void) {
+    int all_acknowledged = 1;
+
+    for (int w = cfg->M; w < job->n; w++) {
+        if (ws[w].heard && !ws[w].is_recover_sent) {
+            send_to(w, MT_RECOVER, reset_cp_id); // -1 is fine: "restart from scratch"
+            ws[w].is_recover_sent = 1;
+        }
+        if (!ws[w].is_recover_ack) {
+            all_acknowledged = 0;
+        }
+    }
+
+    if (all_acknowledged) {
+        set_phase(PH_RECOVER_MAPPER);
+    }
+}
+
+static void recover_mapper_phase_actions(void) {
+    int all_acknowledged = 1;
+
+    for (int w = 0; w < cfg->M; w++) {
+        if (ws[w].heard && !ws[w].is_recover_sent) {
+            send_to(w, MT_RECOVER, reset_cp_id); // -1 is fine: "restart from scratch"
+            ws[w].is_recover_sent = 1;
+        }
+        if (!ws[w].is_recover_ack) {
+            all_acknowledged = 0;
+        }
+    }
+
+    if (all_acknowledged) {
+        set_phase(PH_CP);
+    }
+}
+
+static void check_heartbeats(long now) {
+    int some_worker_dead = 0;
+
+    for (int w = 0; w < job->n; w++) {
+        if (now - ws[w].last_hb > HEARTBEAT_TIMEOUT_MS) {
+            respawn_worker(job, cfg, w);
+            ws[w].heard = 0;
+            ws[w].last_hb = now;
+            some_worker_dead = 1;
+        }
+    }
+
+    if (some_worker_dead) {
+        start_recovery(now);
+    }
+}
+
 /* Returns 0 when the job is complete; any other value is a fatal error. */
 int coordinator_loop(const config_t *c, job_t *j) {
     cfg = c;
@@ -237,15 +310,19 @@ int coordinator_loop(const config_t *c, job_t *j) {
 
         reap_children(job); /* bookkeeping only */
 
+        if (phase != PH_EXITING) {
+            check_heartbeats(now);
+        }
+
         switch (phase) {
         case PH_CP:
             cp_phase_actions(now);
             break;
         case PH_RECOVER_REDUCER:
-            /* TODO (Task 3) */
+            recover_reducer_phase_actions();
             break;
         case PH_RECOVER_MAPPER:
-            /* TODO (Task 3) */
+            recover_mapper_phase_actions();
             break;
         case PH_LAST_CP:
             last_cp_phase_actions();
