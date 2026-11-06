@@ -1,6 +1,3 @@
-/*
- * mapper.c -- YOU IMPLEMENT THE TODOs IN THIS FILE.
- */
 #include "common.h"
 
 #include <errno.h>
@@ -72,9 +69,6 @@ static void to_reducer(int r, const msg_t *m) {
     }
 }
 
-/*
- * TODO (Task 1, Task 2)
- */
 static void take_checkpoint(long c) {
     char path[64];
     snprintf(path, sizeof path, CKPT_DIR "/m%d_%ld", args->id, c);
@@ -100,12 +94,28 @@ static void take_checkpoint(long c) {
     }
 }
 
-/*
- * TODO (Task 3)
- */
 static void recover(long c, int new_rid) {
-    (void)c;
-    (void)new_rid;
+    if (new_rid <= rid)
+        return; // stale or duplicate RECOVER
+
+    // Load the state first, so a failure aborts before side effects.
+    long saved = 0;
+    if (c != NO_CHECKPOINT) {
+        char path[64];
+        snprintf(path, sizeof path, CKPT_DIR "/m%d_%ld", args->id, c);
+        if (load_int(path, &saved) != 0)
+            fail("load_int");
+    }
+
+    rid = new_rid;  // adopt the new timeline
+    offset = saved; // 0 when c == NO_CHECKPOINT
+    broken = 0;     // resume normal work
+    done_sent = 0;  // re-send DONE after finishing again
+
+    disconnect_all(); // drop old streams
+    connect_all();    // fresh connections to every reducer
+
+    to_coordinator(MT_RECOVERY_ACK, c);
 }
 
 /* Handle every message waiting on the control socket. */

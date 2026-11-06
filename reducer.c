@@ -52,14 +52,33 @@ static void close_conn(int i) {
     nconn--;
 }
 
-/*
- * TODO (Task 3)
- */
 static void recover(long c, int new_rid) {
-    (void)c;
-    (void)new_rid;
-    (void)to_coordinator; /* TODO: remove */
-    (void)nblocked;
+    if (new_rid <= rid) {
+        return;
+    }
+
+    rid = new_rid;
+    nblocked = 0;
+    memset(blocked, 0, sizeof blocked);
+    wcmap_free(counts);
+
+    while (nconn > 0) {
+        close_conn(nconn - 1);
+    }
+
+    if (c == NO_CHECKPOINT) {
+        counts = wcmap_new();
+    } else {
+        char path[64];
+        snprintf(path, sizeof path, CKPT_DIR "/r%d_%ld", args->id, c);
+        counts = wcmap_load(path);
+
+        if (counts == NULL) {
+            fail("wcmap_load");
+        }
+    }
+
+    to_coordinator(MT_RECOVERY_ACK, c);
 }
 
 static void handle_control(void) {
@@ -85,17 +104,10 @@ static void handle_control(void) {
         fail("udp_recv");
 }
 
-/*
- * TODO (Task 3)
- */
 static int is_stale(const msg_t *m) {
-    (void)m;
-    return 0;
+    return m->recovery_id < rid;
 }
 
-/*
- * TODO (Task 1, Task 2)
- */
 static void handle_marker(int j, long c) {
     if (blocked[j] == 0) {
         blocked[j] = 1;
